@@ -1,0 +1,93 @@
+import 'dart:io';
+import 'package:flutter/services.dart';
+import 'package:path/path.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart';
+import '../models/joke.dart';
+import '../models/joke_category.dart';
+
+class DatabaseHelper {
+  static final DatabaseHelper instance = DatabaseHelper._init();
+  static Database? _database;
+
+  DatabaseHelper._init();
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await _initDB('jokes.db');
+    return _database!;
+  }
+
+  Future<Database> _initDB(String filePath) async {
+    Directory documentsDirectory = await getApplicationDocumentsDirectory();
+    String path = join(documentsDirectory.path, filePath);
+
+    if (await File(path).exists() == false) {
+      ByteData data = await rootBundle.load(join('assets', filePath));
+      List<int> bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      await File(path).writeAsBytes(bytes, flush: true);
+    }
+
+    return await openDatabase(path);
+  }
+
+  Future<List<JokeCategory>> getCategories() async {
+    final db = await instance.database;
+    final result = await db.query('categories');
+    return result.map((json) => JokeCategory.fromMap(json)).toList();
+  }
+
+  Future<List<Joke>> getJokesByCategory(int categoryId) async {
+    final db = await instance.database;
+    final result = await db.query(
+      'jokes',
+      where: 'categoryID = ?',
+      whereArgs: [categoryId],
+    );
+    return result.map((json) => Joke.fromMap(json)).toList();
+  }
+
+  Future<List<Joke>> getFavoriteJokes() async {
+    final db = await instance.database;
+    final result = await db.query(
+      'jokes',
+      where: 'favourite = ?',
+      whereArgs: [1],
+    );
+    return result.map((json) => Joke.fromMap(json)).toList();
+  }
+
+  Future<List<Joke>> searchJokes(String query) async {
+    final db = await instance.database;
+    final result = await db.query(
+      'jokes',
+      where: 'content LIKE ?',
+      whereArgs: ['%$query%'],
+    );
+    return result.map((json) => Joke.fromMap(json)).toList();
+  }
+
+  Future<void> toggleFavorite(int jokeId, bool isFavorite) async {
+    final db = await instance.database;
+    await db.update(
+      'jokes',
+      {'favourite': isFavorite ? 1 : 0},
+      where: '_id = ?',
+      whereArgs: [jokeId],
+    );
+  }
+
+  Future<void> removeAllFavorites() async {
+    final db = await instance.database;
+    await db.update(
+      'jokes',
+      {'favourite': 0},
+    );
+  }
+
+  Future<int> getTotalJokesCount() async {
+    final db = await instance.database;
+    final result = await db.rawQuery('SELECT COUNT(*) FROM jokes');
+    return Sqflite.firstIntValue(result) ?? 0;
+  }
+}
