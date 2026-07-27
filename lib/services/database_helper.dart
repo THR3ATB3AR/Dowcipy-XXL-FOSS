@@ -1,8 +1,12 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi_web/sqflite_ffi_web.dart';
 import '../models/joke.dart';
 import '../models/joke_category.dart';
 
@@ -19,13 +23,25 @@ class DatabaseHelper {
   }
 
   Future<Database> _initDB(String filePath) async {
-    Directory documentsDirectory = await getApplicationDocumentsDirectory();
-    String path = join(documentsDirectory.path, filePath);
+    if (kIsWeb) {
+      databaseFactory = databaseFactoryFfiWeb;
+    } else if (Platform.isWindows || Platform.isLinux) {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+    }
 
-    if (await File(path).exists() == false) {
-      ByteData data = await rootBundle.load(join('assets', filePath));
-      List<int> bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
-      await File(path).writeAsBytes(bytes, flush: true);
+    String path;
+    if (kIsWeb) {
+      path = filePath;
+    } else {
+      Directory documentsDirectory = await getApplicationDocumentsDirectory();
+      path = join(documentsDirectory.path, filePath);
+    }
+
+    if (!await databaseFactory.databaseExists(path)) {
+      ByteData data = await rootBundle.load('assets/$filePath');
+      Uint8List bytes = data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+      await databaseFactory.writeDatabaseBytes(path, bytes);
     }
 
     return await openDatabase(path);
